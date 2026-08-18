@@ -3,9 +3,14 @@
  *
  * 职责：
  *   1. 初始化 WebGLRenderer / Scene / PerspectiveCamera
- *   2. 相机以球坐标方式相对跟随竹蜻蜓（bus 事件可微调）
+ *   2. 相机固定侧面 3/4 视角（卷轴观感，不再可旋转）
  *   3. 主循环 render(dt)：驱动 bamboo + world 后渲染
  *   4. resize：响应窗口尺寸变化
+ *
+ * 视角约定（2026-08-18 改为固定）：
+ *   - theta=0.40, phi=0.35, dist=7（固定，不响应输入）
+ *   - 相机随竹蜻蜓 y 上下平移（保持主角在画面中央偏下）
+ *   - 低空（alt<0.05）注视点上抬更明显，保留"掠过草尖"观感
  *
  * 不做的事：
  *   - 不创建世界元素（world.js 负责）
@@ -28,13 +33,18 @@
   var renderer;
   var initialized = false;
 
-  // 相机相对竹蜻蜓的偏移（球坐标）
-  // 默认：偏右上后方，仰角约 23°，距离 6 单位
-  var camOrbit = {
-    theta: 0.55,        // 水平角（弧度）
-    phi: 0.40,          // 仰角（弧度），0=水平面，π/2=垂直
-    dist: 6             // 距目标距离
-  };
+  // 相机固定球坐标（侧面 3/4 视角，卷轴观感）
+  //   theta=0.40 → 水平角约 23°（相机偏右后侧看）
+  //   phi  =0.35 → 仰角约 20°（略俯视）
+  //   dist =7    → 距主角 7 单位，给云海和星球留出景深
+  // 不再响应 camera-rotate / camera-zoom 事件（input.js 已停止发送）
+  var CAM_THETA = 0.40;
+  var CAM_PHI = 0.35;
+  var CAM_DIST = 7;
+  // 注视点上抬量：让竹蜻蜓稳定出现在画面中央偏下
+  var LOOK_OFFSET_BASE = 0.7;
+  var LOOK_OFFSET_LOW_ALT = 0.9; // 低空时额外上抬，让"掠过草尖"感保留
+
   var camSmoothPos = new THREE.Vector3();
   var camTargetPos = new THREE.Vector3();
 
@@ -59,12 +69,12 @@
     // ---- Camera ----
     var ar = container.clientWidth / Math.max(container.clientHeight, 1);
     camera = new THREE.PerspectiveCamera(60, ar, 0.1, 2000);
-    var cx0 = camOrbit.dist * Math.cos(camOrbit.phi) * Math.cos(camOrbit.theta);
-    var cy0 = camOrbit.dist * Math.sin(camOrbit.phi);
-    var cz0 = camOrbit.dist * Math.cos(camOrbit.phi) * Math.sin(camOrbit.theta);
+    var cx0 = CAM_DIST * Math.cos(CAM_PHI) * Math.cos(CAM_THETA);
+    var cy0 = CAM_DIST * Math.sin(CAM_PHI);
+    var cz0 = CAM_DIST * Math.cos(CAM_PHI) * Math.sin(CAM_THETA);
     camSmoothPos.set(cx0, cy0, cz0);
     camera.position.copy(camSmoothPos);
-    camera.lookAt(0, 0, 0);
+    camera.lookAt(0, LOOK_OFFSET_BASE, 0);
 
     // ---- Renderer ----
     var pr = isMobile() ? 1.5 : 2;
@@ -89,24 +99,8 @@
     var hemi = new THREE.HemisphereLight(0xb6d6ff, 0x4d6b3e, 0.45);
     scene.add(hemi);
 
-    // ---- 事件订阅 ----
-    BG.bus.on('camera-rotate', onCamRotate);
-    BG.bus.on('camera-zoom', onCamZoom);
-
     // ---- resize 监听 ----
     window.addEventListener('resize', resize);
-  }
-
-  // ========== 相机控制事件 ==========
-  function onCamRotate(d) {
-    if (!d) return;
-    camOrbit.theta -= (d.dx || 0) * 0.005;
-    camOrbit.phi = BG.clamp(camOrbit.phi - (d.dy || 0) * 0.005, 0.10, 1.35);
-  }
-
-  function onCamZoom(d) {
-    if (!d) return;
-    camOrbit.dist = BG.clamp(camOrbit.dist + (d.delta || 0) * 0.5, 3, 15);
   }
 
   // ========== resize ==========
@@ -133,10 +127,11 @@
       camTargetPos.set(0, (BG.S.altitude || 0) * 80, 0);
     }
 
-    // ---- 球坐标 → 笛卡尔，加到竹蜻蜓位置 ----
-    var cx = camOrbit.dist * Math.cos(camOrbit.phi) * Math.cos(camOrbit.theta);
-    var cy = camOrbit.dist * Math.sin(camOrbit.phi);
-    var cz = camOrbit.dist * Math.cos(camOrbit.phi) * Math.sin(camOrbit.theta);
+    // ---- 固定球坐标 → 笛卡尔，加到竹蜻蜓位置 ----
+    // 相机角度/距离恒定，只随竹蜻蜓 x/y/z 平移（卷轴视角锁定）
+    var cx = CAM_DIST * Math.cos(CAM_PHI) * Math.cos(CAM_THETA);
+    var cy = CAM_DIST * Math.sin(CAM_PHI);
+    var cz = CAM_DIST * Math.cos(CAM_PHI) * Math.sin(CAM_THETA);
 
     var desiredX = camTargetPos.x + cx;
     var desiredY = camTargetPos.y + cy;
@@ -148,10 +143,12 @@
     camSmoothPos.z = BG.lerp(camSmoothPos.z, desiredZ, 0.12);
     camera.position.copy(camSmoothPos);
 
-    // 低空时注视点略上抬，让竹蜻蜓位于画面下方（"刚离手"感）
+    // ---- 注视点：固定略高于竹蜻蜓，让主角位于画面中央偏下 ----
+    // 低空 alt<0.05 时额外上抬（LOOK_OFFSET_LOW_ALT），让"掠过草尖"感保留
     var alt = BG.S.altitude || 0;
-    var altLift = alt < 0.05 ? 0.7 * (1 - alt / 0.05) : 0;
-    camera.lookAt(camTargetPos.x, camTargetPos.y + altLift, camTargetPos.z);
+    var lowAltT = alt < 0.05 ? (1 - alt / 0.05) : 0;
+    var lookY = camTargetPos.y + LOOK_OFFSET_BASE + lowAltT * LOOK_OFFSET_LOW_ALT;
+    camera.lookAt(camTargetPos.x, lookY, camTargetPos.z);
 
     // ---- 驱动依赖模块 ----
     if (bambooMod && bambooMod.update) bambooMod.update(dt);
