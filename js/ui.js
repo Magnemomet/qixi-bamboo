@@ -33,6 +33,9 @@
   var photoTimer = null;
   var toastTimer = null;
   var letterCloseHandler = null;
+  var HUD_INTERVAL_MS = 100;
+  var hudElapsedMs = HUD_INTERVAL_MS;
+  var hudLast = {};
   // 本局已展示的照片 id（每局每张最多一次，跨局可重温）
   var shownPhotos = [];
 
@@ -392,6 +395,7 @@
       btnStart:            $('btn-start'),
       hud:                 $('hud'),
       hudAlt:              $('hud-altitude-km'),
+      hudAltUnit:          null,
       hudRpm:              $('hud-rpm'),
       hudScore:            $('hud-score'),
       hudBest:             $('hud-best'),
@@ -409,6 +413,8 @@
       galleryAchievements: $('gallery-achievements'),
       galleryPhotos:       $('gallery-photos')
     };
+
+    dom.hudAltUnit = dom.hudAlt && dom.hudAlt.parentNode ? dom.hudAlt.parentNode.querySelector('small') : null;
 
     // 开始按钮：只发事件，游戏启动逻辑由 main.js 处理
     if (dom.btnStart) {
@@ -491,6 +497,12 @@
     S.photosCollected = collectedArr.length;
   }
 
+  function setTextIfChanged(key, el, value) {
+    if (!el || hudLast[key] === value) return;
+    el.textContent = value;
+    hudLast[key] = value;
+  }
+
   // ========== 每帧更新 ==========
   function update(dt) {
     if (!dom.hud) return;
@@ -500,22 +512,22 @@
       dom.hud.classList.remove('hidden');
     }
 
-    // 数值
-    var altKm = BG.S.altitudeKm || 0;
-    var altUnit = BG.S.altitudeUnit || 'km';
-    if (dom.hudAlt) {
-      dom.hudAlt.textContent = altKm < 10 ? altKm.toFixed(1) : Math.round(altKm);
-    }
-    var altUnitEl = dom.hudAlt && dom.hudAlt.parentNode ? dom.hudAlt.parentNode.querySelector('small') : null;
-    if (altUnitEl) altUnitEl.textContent = altUnit;
-    if (dom.hudRpm) dom.hudRpm.textContent = Math.round(BG.S.rpm || 0);
-    if (dom.hudScore) dom.hudScore.textContent = Math.round(BG.S.score || 0);
-    if (dom.hudBest) dom.hudBest.textContent = Math.round(BG.S.best || 0);
+    // HUD 数字最多每 100ms 刷新一次，并且只有展示值变化时才触碰 DOM。
+    hudElapsedMs += Math.max(0, dt || 0) * 1000;
+    if (hudElapsedMs < HUD_INTERVAL_MS) return;
+    hudElapsedMs %= HUD_INTERVAL_MS;
 
-    // 当前层级
+    var altKm = BG.S.altitudeKm || 0;
+    var altText = String(altKm < 10 ? altKm.toFixed(1) : Math.round(altKm));
+    setTextIfChanged('alt', dom.hudAlt, altText);
+    setTextIfChanged('unit', dom.hudAltUnit, BG.S.altitudeUnit || 'km');
+    setTextIfChanged('rpm', dom.hudRpm, String(Math.round(BG.S.rpm || 0)));
+    setTextIfChanged('score', dom.hudScore, String(Math.round(BG.S.score || 0)));
+    setTextIfChanged('best', dom.hudBest, String(Math.round(BG.S.best || 0)));
+
     var phIdx = BG.S.phaseIndex || 0;
     var ph = BG.PHASES[phIdx];
-    if (ph && dom.hudPhase) dom.hudPhase.textContent = ph.name;
+    if (ph) setTextIfChanged('phase', dom.hudPhase, ph.name);
   }
 
   BG.register('ui', {
