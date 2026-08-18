@@ -385,6 +385,33 @@ canvas { display: block; }
 }
 .photo-letter-card.is-locked .photo-letter-btn:hover { transform: none; }
 
+/* 密码输入 */
+.password-input {
+  margin-top: 26px;
+  padding: 12px 22px;
+  width: min(300px, 72vw);
+  font-size: 17px;
+  text-align: center;
+  letter-spacing: .4em;
+  color: #f5efe2;
+  background: rgba(20, 32, 52, .6);
+  border: 1px solid rgba(255, 230, 180, .3);
+  border-radius: 999px;
+  outline: none;
+  transition: border-color .3s, box-shadow .3s;
+}
+.password-input:focus {
+  border-color: rgba(255, 220, 150, .7);
+  box-shadow: 0 0 18px rgba(255, 200, 100, .25);
+}
+.password-input::placeholder { color: #6d83a0; letter-spacing: .2em; }
+.password-error {
+  margin-top: 14px;
+  font-size: 13px;
+  color: #f2a08a;
+  letter-spacing: .1em;
+}
+
 /* 移动端适配 */
 @media (max-width: 640px) {
   .hud-altitude { font-size: 26px; }
