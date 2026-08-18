@@ -1,0 +1,168 @@
+/* ============================================================
+ * style.css — 基础骨架（ditto 在此之上细化视觉）
+ * 基调：海蓝 + 晚霞 + 月光；克制温柔，不施压
+ * ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #0b1d33;
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  color: #f5efe2;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#game-container { position: fixed; inset: 0; }
+canvas { display: block; }
+
+.hidden { display: none !important; }
+
+/* 覆盖层通用 */
+.overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, #12304f 0%, #081527 70%);
+  transition: opacity .8s ease;
+}
+.overlay.fade-out { opacity: 0; pointer-events: none; }
+
+/* 开始界面 */
+.start-box { text-align: center; padding: 0 24px; max-width: 560px; }
+.start-title {
+  font-size: clamp(48px, 12vw, 88px);
+  letter-spacing: .35em; text-indent: .35em;
+  color: #ffd98a; text-shadow: 0 0 24px rgba(255, 190, 80, .35);
+}
+.start-sub { margin-top: 8px; font-size: clamp(16px, 4vw, 22px); letter-spacing: .2em; color: #9fc4e8; }
+.start-desc { margin-top: 28px; line-height: 1.9; font-size: 15px; color: #d8e4f2; }
+.start-controls { margin-top: 22px; line-height: 2; font-size: 13px; color: #8fa9c6; }
+.btn-start {
+  margin-top: 34px;
+  padding: 14px 56px;
+  font-size: 18px; letter-spacing: .3em; text-indent: .3em;
+  color: #fff8ea; background: linear-gradient(135deg, #e8a04c, #c96f2e);
+  border: none; border-radius: 999px; cursor: pointer;
+  box-shadow: 0 8px 28px rgba(230, 150, 60, .35);
+  transition: transform .2s, box-shadow .2s;
+}
+.btn-start:hover { transform: translateY(-2px); box-shadow: 0 12px 34px rgba(230, 150, 60, .5); }
+.btn-start:active { transform: translateY(0); }
+
+/* HUD */
+#hud {
+  position: fixed; inset: 0; z-index: 20; pointer-events: none;
+}
+.hud-left { position: absolute; left: 18px; top: 18px; }
+.hud-altitude { font-size: 34px; font-weight: 600; color: #ffe9c0; text-shadow: 0 2px 12px rgba(0,0,0,.5); }
+.hud-altitude small { font-size: 13px; margin-left: 4px; color: #9fc4e8; }
+.hud-phase { margin-top: 4px; font-size: 14px; letter-spacing: .2em; color: #cfe3f8; text-shadow: 0 1px 8px rgba(0,0,0,.6); }
+.hud-right { position: absolute; right: 18px; top: 18px; text-align: right; }
+.hud-rpm { font-size: 22px; color: #ffe9c0; text-shadow: 0 2px 10px rgba(0,0,0,.5); }
+.hud-rpm small { font-size: 11px; margin-left: 3px; color: #9fc4e8; }
+.hud-score { margin-top: 4px; font-size: 13px; color: #cfe3f8; text-shadow: 0 1px 8px rgba(0,0,0,.6); }
+
+/* 层级横幅 */
+#phase-banner {
+  position: fixed; top: 22%; left: 50%; transform: translateX(-50%);
+  z-index: 30; pointer-events: none;
+  font-size: clamp(28px, 7vw, 52px); letter-spacing: .45em; text-indent: .45em;
+  color: #fff4d8; text-shadow: 0 0 30px rgba(255, 200, 100, .6), 0 2px 14px rgba(0,0,0,.6);
+  opacity: 0; transition: opacity .9s ease;
+}
+#phase-banner.show { opacity: 1; }
+
+/* 照片回忆卡 */
+#photo-card {
+  position: fixed; left: 24px; bottom: 26px; z-index: 25;
+  max-width: min(320px, 78vw);
+  background: rgba(20, 32, 52, .72);
+  border: 1px solid rgba(255, 230, 180, .25);
+  border-radius: 14px; padding: 12px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
+  opacity: 0; transform: translateY(16px);
+  transition: opacity .7s ease, transform .7s ease;
+}
+#photo-card.show { opacity: 1; transform: translateY(0); }
+.photo-frame {
+  border-radius: 10px; overflow: hidden;
+  background: #0d1a2c;
+}
+.photo-frame img { width: 100%; display: block; }
+.photo-caption { margin-top: 10px; font-size: 13.5px; line-height: 1.8; color: #f2e7d3; }
+
+/* 成就 toast */
+#toast {
+  position: fixed; right: 24px; bottom: 26px; z-index: 26;
+  display: flex; align-items: center; gap: 12px;
+  max-width: min(300px, 70vw);
+  background: rgba(24, 38, 60, .82);
+  border: 1px solid rgba(255, 220, 150, .3);
+  border-radius: 12px; padding: 12px 16px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, .5);
+  opacity: 0; transform: translateY(14px);
+  transition: opacity .6s ease, transform .6s ease;
+}
+#toast.show { opacity: 1; transform: translateY(0); }
+.toast-icon { font-size: 26px; }
+.toast-title { font-size: 15px; color: #ffd98a; letter-spacing: .1em; }
+.toast-desc { margin-top: 2px; font-size: 12px; color: #c9d9ee; }
+
+/* 手势提示 */
+#gesture-hint {
+  position: fixed; top: 74px; left: 50%; transform: translateX(-50%);
+  z-index: 24; pointer-events: none;
+  font-size: 13px; color: #cfe3f8;
+  background: rgba(16, 28, 46, .7); border-radius: 999px; padding: 8px 18px;
+  border: 1px solid rgba(255, 230, 180, .2);
+}
+
+/* 信笺 */
+#letter-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(5, 12, 24, .86);
+  backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity 1s ease;
+  overflow-y: auto;
+}
+#letter-overlay.show { opacity: 1; }
+.letter-paper {
+  position: relative;
+  width: min(720px, 92vw);
+  max-height: 88vh; overflow-y: auto;
+  margin: 5vh auto;
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(255, 244, 220, .9), rgba(244, 228, 196, .97) 60%, rgba(232, 210, 172, .97));
+  color: #4a3b28;
+  border-radius: 6px;
+  padding: 48px 44px;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, .6);
+  line-height: 2.05;
+  font-size: 15.5px;
+  transform: translateY(20px) scale(.98);
+  transition: transform 1s ease;
+}
+#letter-overlay.show .letter-paper { transform: translateY(0) scale(1); }
+.letter-stamp {
+  position: absolute; top: 26px; right: 30px;
+  width: 56px; height: 56px; border-radius: 50%;
+  border: 3px solid #c23a3a;
+  color: #c23a3a;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+  transform: rotate(-12deg);
+  opacity: .75;
+}
+.letter-content p { margin-bottom: 1.1em; }
+.letter-content .letter-end { margin-top: 2em; text-align: right; }
+
+/* 移动端适配 */
+@media (max-width: 640px) {
+  .hud-altitude { font-size: 26px; }
+  .hud-rpm { font-size: 18px; }
+  .letter-paper { padding: 36px 22px; font-size: 14.5px; }
+  #photo-card { left: 14px; bottom: 16px; max-width: 76vw; }
+  #toast { right: 14px; bottom: 16px; }
+}
