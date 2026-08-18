@@ -438,19 +438,12 @@
         });
       })(openers[oi]);
     }
-    // 关闭按钮（×）
+    // 关闭按钮（×）：data-gallery-close 直接指明关闭哪个馆
     var closers = document.querySelectorAll('[data-gallery-close]');
     for (var ci = 0; ci < closers.length; ci++) {
       (function (btn) {
         btn.addEventListener('click', function () {
-          var overlay = btn.parentNode && btn.parentNode.parentNode;
-          // 寻找最近的 .gallery-overlay
-          while (overlay && !overlay.classList || !overlay.classList.contains('gallery-overlay')) {
-            overlay = overlay.parentNode;
-          }
-          if (!overlay) return;
-          if (overlay === dom.galleryAchievements) closeGallery('achievements');
-          else if (overlay === dom.galleryPhotos) closeGallery('photos');
+          closeGallery(btn.getAttribute('data-gallery-close'));
         });
       })(closers[ci]);
     }
