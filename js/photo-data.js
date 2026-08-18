@@ -1,75 +1,58 @@
 /* ============================================================
  * photo-data.js — 照片回忆层数据 + 信内容（纯数据模块）
  *
- * PHOTOS：10 张精选照片（2025-12-24/25 深圳海边 + 宝可梦道馆）
+ * PHOTOS：20 张精选照片（2025-12-24/25 海边 + 宝可梦道馆）
  * 叙事线：从沙滩（地面）到星空（太空），越飞越高，回忆越接近天空
  * caption 回忆文字为草稿，待云审核修改
- * LETTER_TEXT：信正文，qingmo 草稿 → 云审核后填入（见 PROGRESS）
+ * LETTER_TEXT：信正文（云审核定稿）
  * ============================================================ */
 (function () {
   'use strict';
 
   var PHOTOS = [
-    {
-      id: 1,
-      file: '01-feet-sand.webp',
-      phase: 'ground',
-      caption: '沙滩上的两双脚，从这一天起，一起走。'
-    },
-    {
-      id: 2,
-      file: '02-selfie-blue.webp',
-      phase: 'tree',
-      caption: '那一天的天很蓝，你笑得很甜。'
-    },
-    {
-      id: 3,
-      file: '03-sunset-shoulder.webp',
-      phase: 'rooftop',
-      caption: '圣诞夜的海边，你把头靠在我肩上，夕阳正好落进海里。'
-    },
-    {
-      id: 4,
-      file: '04-boat-girl.webp',
-      phase: 'cloud',
-      caption: '小船载着你，晚风也载着你。'
-    },
-    {
-      id: 5,
-      file: '05-heart-back.webp',
-      phase: 'plane',
-      caption: '我们用胳膊画了一颗心，把山和海都装了进去。'
-    },
-    {
-      id: 6,
-      file: '06-hill-arms.webp',
-      phase: 'nearspace',
-      caption: '山顶的风很大，你张开手臂，像要飞起来。'
-    },
-    {
-      id: 7,
-      file: '07-boat-heart.webp',
-      phase: 'orbit',
-      caption: '船晃啊晃，我们比了一个心，海面上都是碎金。'
-    },
-    {
-      id: 8,
-      file: '08-hug-sun.webp',
-      phase: 'mars',
-      caption: '张开双臂，把整个太阳抱进怀里。'
-    },
-    {
-      id: 9,
-      file: '09-pokemon.webp',
-      phase: 'planets',
-      caption: '宝可梦道馆前，我们都是训练家，你是我永远的最佳搭档。'
-    },
-    {
-      id: 10,
-      file: '10-astronaut.webp',
-      phase: 'galaxy',
-      caption: '宇航员说：星空那么大，带上她一起去看看吧。'
-    }
+    /* ---- 地面：草尖与花丛 ---- */
+    { id: 1,  file: '01-feet-sand.webp',     phase: 'ground',    caption: '沙滩上的两双脚，从这一天起，一起走。' },
+    { id: 11, file: '11-pokemon-store.webp', phase: 'ground',    caption: '宝可梦店里，你对着草喵喵笑成了小孩。' },
+
+    /* ---- 树梢之上 ---- */
+    { id: 2,  file: '02-selfie-blue.webp',   phase: 'tree',      caption: '那一天的天很蓝，你笑得很甜。' },
+    { id: 12, file: '12-sit-silhouette.webp',phase: 'tree',      caption: '坐在岸边看日落的人，是全世界最好看的人。' },
+
+    /* ---- 城市楼群 ---- */
+    { id: 13, file: '13-lean-rail.webp',     phase: 'building',  caption: '你倚着石栏笑，像所有好天气的集合。' },
+
+    /* ---- 楼顶与低空 ---- */
+    { id: 3,  file: '03-sunset-shoulder.webp',phase: 'rooftop',  caption: '那一天的海边，你把头靠在我肩上，夕阳正好落进海里。' },
+    { id: 14, file: '14-beach-turn.webp',    phase: 'rooftop',   caption: '回头的那一刻，晚风正好，夕阳正好。' },
+
+    /* ---- 积云层 ---- */
+    { id: 4,  file: '04-boat-girl.webp',     phase: 'cloud',     caption: '小船载着你，晚风也载着你。' },
+    { id: 15, file: '15-sea-back.webp',      phase: 'cloud',     caption: '你提着鞋站在水边，望了海很久很久。' },
+
+    /* ---- 平流层（飞机） ---- */
+    { id: 5,  file: '05-heart-back.webp',    phase: 'plane',     caption: '我们用胳膊画了一颗心，把山和海都装了进去。' },
+    { id: 16, file: '16-lifevest.webp',      phase: 'plane',     caption: '穿着橙色救生衣的你，赢了全世界的风。' },
+
+    /* ---- 近地太空 ---- */
+    { id: 6,  file: '06-hill-arms.webp',     phase: 'nearspace', caption: '山顶的风很大，你张开手臂，像要飞起来。' },
+
+    /* ---- 地球轨道 ---- */
+    { id: 7,  file: '07-boat-heart.webp',    phase: 'orbit',     caption: '船晃啊晃，我们比了一个心，海面上都是碎金。' },
+    { id: 17, file: '17-heart-sun.webp',     phase: 'orbit',     caption: '用手心框住太阳，像框住我们的愿望。' },
+
+    /* ---- 火星 ---- */
+    { id: 8,  file: '08-hug-sun.webp',       phase: 'mars',      caption: '张开双臂，把整个太阳抱进怀里。' },
+
+    /* ---- 外行星带 ---- */
+    { id: 9,  file: '09-pokemon.webp',       phase: 'planets',   caption: '宝可梦道馆前，我们都是训练家，你是我永远的最佳搭档。' },
+    { id: 18, file: '18-cat.webp',           phase: 'planets',   caption: '路边的小猫眯着眼，和你一样让人心软。' },
+
+    /* ---- 太阳系边缘 ---- */
+    { id: 19, file: '19-lighthouse.webp',    phase: 'solaredge', caption: '白色的灯塔守着海，像我们守着彼此。' },
+
+    /* ---- 银河尽头 ---- */
+    { id: 10, file: '10-astronaut.webp',     phase: 'galaxy',    caption: '宇航员说：星空那么大，带上她一起去看看吧。' },
+    { id: 20, file: '20-sun-path.webp',      phase: 'galaxy',    caption: '阳光在海面铺了一条金色的路，通向远方。' }
   ];
 
   /* 信正文：云审核定稿（2026-08-18 改：黄昏/麻辣烫/深夜家里的灯火等） */
