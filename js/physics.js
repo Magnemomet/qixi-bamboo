@@ -20,7 +20,8 @@
  *   letter {}              到达月亮高度（≥0.85）解锁信件
  *
  * 事件（监听）：
- *   photo   → 本局积分 +50（回忆照片收集）
+ *   photo   → 照片收集：按 id 去重并持久化（bamboo_photos 由 physics 统一维护，
+ *              ui.js 只发事件和读存储渲染照片馆，不写）+ 本局积分 +50
  *
  * 设计说明：
  * - 阻尼 dω/dt = -(k1·ω + k2·ω²)：k1 线性段负责低速衰减，k2 平方项在高速时
@@ -50,7 +51,8 @@
     LETTER_ALT: 0.60,     // 信件解锁高度（与 PHASES moon.t 一致，飞到月亮约 5 分钟）
     PHOTO_SCORE: 50,      // 每张照片加分
     LS_BEST: 'bamboo_best',
-    LS_FLIGHTS: 'bamboo_total_flights'
+    LS_FLIGHTS: 'bamboo_total_flights',
+    LS_PHOTOS: 'bamboo_photos'  // 已收集照片 id 列表（bamboo_photos 由 physics 统一维护）
   };
 
   /* ---------- 存档（file:// 下 localStorage 可能被禁用，全部 try/catch） ---------- */
@@ -71,14 +73,47 @@
     try { localStorage.setItem(CONST.LS_FLIGHTS, String(S.totalFlights)); } catch (e) { /* 静默 */ }
   }
 
+  /* ---------- 照片收集持久化 ----------
+   * bamboo_photos 由 physics 统一维护：写入只发生在本模块（savePhotos）。
+   * ui.js 只负责发带 id 的 photo 事件，以及读 localStorage('bamboo_photos') 渲染照片馆，不写。
+   * photoIds 是内存副本：localStorage 不可用（file:// 隐私模式）时静默降级为纯内存计数，
+   * 不持久化但不报错。 */
+  var photoIds = [];
+
+  function loadPhotos() {
+    try {
+      var raw = localStorage.getItem(CONST.LS_PHOTOS);
+      var arr = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(arr)) photoIds = arr;
+    } catch (e) { /* 静默降级：保持内存空数组 */ }
+    S.photosCollected = photoIds.length;
+  }
+
+  function savePhotos() {
+    try { localStorage.setItem(CONST.LS_PHOTOS, JSON.stringify(photoIds)); } catch (e) { /* 静默降级 */ }
+  }
+
   /* ---------- 核心接口 ---------- */
 
   function init() {
     loadSave();
-    // 照片加分：事件总线，跨模块通信（photo 由 ui 层触发）
-    B.bus.on('photo', function () {
+    loadPhotos();
+    // 照片收集：事件总线，跨模块通信（photo 由 ui 层触发，payload: {file, caption, id}）。
+    // 计数以 localStorage('bamboo_photos') 的 id 数组长度为唯一来源（去重后写回），
+    // 不再是简单 ++；持久化写入统一由 physics 完成（bamboo_photos 由 physics 统一维护）。
+    B.bus.on('photo', function (ev) {
       S.score += CONST.PHOTO_SCORE;
-      S.photosCollected++;
+      var id = ev && ev.id;
+      if (id !== undefined && id !== null && id !== '') {
+        if (photoIds.indexOf(id) === -1) {
+          photoIds.push(id);
+          savePhotos();
+        }
+        S.photosCollected = photoIds.length;
+      } else {
+        // 兜底：旧版事件无 id（ui.js 改造前）无法去重/持久化，退化为内存计数
+        S.photosCollected++;
+      }
     });
   }
 
