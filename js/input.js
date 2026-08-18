@@ -1,23 +1,27 @@
 /* ============================================================
  * input.js — 输入模块（fairy 实现）
  *
- * 职责：收集所有"搓动/操控"输入源并注入物理：
- *   - 鼠标：快速横移（>700px/s）= 搓动；慢速拖拽 / 右键拖拽 = 视角旋转
- *   - 触摸：单指快速来回划 = 搓动；慢速单指 = 旋转；双指滑动 = 旋转 + 捏合 = 缩放
- *   - 摇一摇：devicemotion 加速度变化率超阈值 = 搓动（Android，iOS 尽力而为）
+ * 职责：收集所有"转动/操控"输入源并注入物理：
+ *   - 鼠标：按住左键 = 持续注入（点击转动）；松开/移出窗口 = 停止，靠惯性滑翔
+ *   - 触摸：单指按住 = 持续注入；抬起/取消 = 停止（不再需要划动）
+ *   - 摇一摇：devicemotion 加速度变化率超阈值 = 注入（Android，iOS 尽力而为）
  *   - 摄像头手势：MediaPipe Hands 双掌心相对搓动 / 单掌心上下挥动（尽力而为）
  * 原则：能力检测 + try/catch 全包裹，任何失败静默降级，绝不抛错。
  *
  * 接口：
  *   init()    能力检测、挂事件、启动摄像头手势（异步）、emit 能力报告
- *   dispose() 移除全部监听、停止摄像头流、关闭 MediaPipe、清理注入节点
+ *   dispose() 移除全部监听、停止摄像头流、关闭 MediaPipe、清理注入定时器
  *
  * 事件（emit）：
  *   input-status  {mouse, touch, shake, gesture}   能力检测结果（gesture 异步更新）
- *   camera-rotate {dx, dy}   视角拖拽（像素位移，右为正）
- *   camera-zoom   {delta}    双指捏合（delta>0 张开/放大，像素）
  *
- * 搓动走 physics.spin()（正增量接口，本模块负责节流，防止每帧灌爆）。
+ * 注入走 physics.spin()（正增量接口）。按住注入由本模块的 50ms 定时器节流，
+ * 每 tick 注入一次，转速越高注入越小（两段式），保证平衡点不爆表。
+ *
+ * 已移除（2026-08-18，固定侧面视角）：
+ *   - camera-rotate / camera-zoom 的全部 emit（慢速拖拽、右键拖拽、双指手势）
+ *   - 鼠标横移搓动（SPIN_VELOCITY / SPIN_RPS_K / SPIN_THROTTLE）
+ *   - 触摸滑动搓动与双指捏合逻辑
  *
  * 已知限制（尽力而为模块）：
  * - file:// 下摄像头取决于浏览器是否把 file:// 视为安全上下文（Chrome/Edge 允许，
@@ -30,26 +34,37 @@
   var B = window.BambooGame;
   var S = B.S;
 
-  /* ---------- 调参常量 ---------- */
+  /* ---------- 调参常量 ----------
+   * 标定说明（2026-08-18，点击转动模型，由 030-车间/input-handfeel-sim.js 模拟验证）：
+   * 按住注入两段式：低转速段用力起转（HOLD_RPS_FAST），高转速段转巡航
+   * （HOLD_RPS_CRUISE），切换阈值 HOLD_RPM_SWITCH。
+   * rpm 增量 = rps × SPIN_EFF×60 = rps×54。
+   *  - FAST 0.93rps/50ms ≈ +50rpm/次 → 注入率 1000rpm/s，0→2200rpm 约 2.5s；
+   *  - CRUISE 0.40rps/50ms ≈ +21.5rpm/次 → 注入率 430rpm/s，阻尼平衡点 ≈3100rpm
+   *    （K1=0.08、K2=0.00018 下 3100rpm 阻尼 ≈429rpm/s，恰好抵消），
+   *    按住 5s ≈2600rpm、持续按住稳定 3100±，均落在 2500~3500 校验窗内。
+   * 注：若巡航也按 0.8~1.2rps（注入率 860~1300rpm/s），平衡点会到 5400~6400rpm，
+   * 远超 3500 上限；0.8~1.2 段只用于起转。 */
   var CONST = {
-    /* 搓动通用 */
-    SPIN_VELOCITY: 700,    // px/s 横向速度阈值，超过即搓动
-    SPIN_RPS_K: 0.25,      // rps = |vx| / 100 * 25（即 vx * 0.25）
-    SPIN_THROTTLE: 50,     // ms，两次搓动最小间隔（防每帧灌爆）
+    /* 按住注入（点击转动） */
+    HOLD_INJECT_MS: 50,      // ms，注入定时器周期（20 次/s）
+    HOLD_RPS_FAST: 0.93,     // 起转段单次注入 rps（+50rpm/次，注入率 1000rpm/s）
+    HOLD_RPS_CRUISE: 0.40,   // 巡航段单次注入 rps（+21.5rpm/次，注入率 430rpm/s，平衡点≈3100）
+    HOLD_RPM_SWITCH: 2200,   // rpm 达到此值切换为巡航注入（rpm 基准，防高转速下误加速）
 
     /* 摇一摇 */
     SHAKE_THRESHOLD: 12,   // 加速度变化率阈值（m/s² 帧间差向量模）
-    SHAKE_RPS_K: 2,        // rps = min(Δacc * 2, SHAKE_RPS_MAX)
-    SHAKE_RPS_MAX: 40,
+    SHAKE_RPS_K: 0.5,      // rps = min(Δacc * 0.5, SHAKE_RPS_MAX)：一次猛摇 +270~540rpm
+    SHAKE_RPS_MAX: 10,
     SHAKE_THROTTLE: 80,    // ms
 
     /* 摄像头手势（MediaPipe Hands） */
     HANDS_CDN: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/',
     GESTURE_DIST_RATE: 0.35,  // 双掌心距离变化率阈值（归一坐标/s）
-    GESTURE_RPS_K: 90,        // rps 正比系数：rps = min(|rate| * K, MAX)
-    GESTURE_RPS_MAX: 40,
+    GESTURE_RPS_K: 12,        // rps 正比系数（原 90 → 1/7.5）：rps = min(|rate| * K, MAX)
+    GESTURE_RPS_MAX: 5,       // 单次手势注入上限（5rps ≈ +270rpm，落在单次 +100~300rpm 目标）
     GESTURE_Y_RATE: 1.2,      // 单手 y 方向速度阈值（归一坐标/s，快速往复）
-    GESTURE_SINGLE_K: 45,     // 单手 rps 系数（比双手保守）
+    GESTURE_SINGLE_K: 6,      // 单手 rps 系数（原 45 → 1/7.5，与双手同比例）
     GESTURE_THROTTLE: 120,    // ms，手势搓动节流
     VIDEO_W: 320, VIDEO_H: 240
   };
@@ -62,109 +77,60 @@
     if (physics && physics.spin) physics.spin(rps, source);
   }
 
-  /* ================= 鼠标 ================= */
-  var mouse = { down: false, button: 0, x: 0, y: 0, lastT: 0, lastSpinT: 0 };
+  /* ================= 按住注入（点击转动） =================
+   * 鼠标左键 / 单指按住 → 50ms 定时器持续注入，松开/抬起/移出窗口 → 停止。
+   * 两段式注入：S.rpm < HOLD_RPM_SWITCH 用 FAST 起转，否则 CRUISE 巡航。
+   * 多输入源同时按住只保留一条注入流（防止叠加爆表），source 取当前按住源。 */
+  var hold = { mouse: false, touch: false, timer: null };
 
+  function holdTick() {
+    var rps = S.rpm >= CONST.HOLD_RPM_SWITCH ? CONST.HOLD_RPS_CRUISE : CONST.HOLD_RPS_FAST;
+    doSpin(rps, hold.mouse ? 'mouse' : 'touch');
+  }
+  function startHold() {
+    holdTick(); // 按下立即注入一次，手感跟手
+    if (!hold.timer) hold.timer = setInterval(holdTick, CONST.HOLD_INJECT_MS);
+  }
+  function stopHoldIfIdle() {
+    if (hold.mouse || hold.touch) return;
+    if (hold.timer) { clearInterval(hold.timer); hold.timer = null; }
+  }
+
+  /* ================= 鼠标 ================= */
   function onMouseDown(e) {
-    if (e.button !== 0 && e.button !== 2) return; // 只要左/右键
-    mouse.down = true;
-    mouse.button = e.button;
-    mouse.x = e.clientX;
-    mouse.y = e.clientY;
-    mouse.lastT = performance.now();
+    if (e.button !== 0) return; // 只认左键
+    hold.mouse = true;
+    startHold();
   }
-  function onMouseMove(e) {
-    if (!mouse.down) return;
-    var now = performance.now();
-    var dt = Math.max((now - mouse.lastT) / 1000, 0.001);
-    var dx = e.clientX - mouse.x;
-    var dy = e.clientY - mouse.y;
-    mouse.x = e.clientX;
-    mouse.y = e.clientY;
-    mouse.lastT = now;
-    if (mouse.button === 2) {           // 右键拖拽：纯视角旋转
-      if (Math.abs(dx) + Math.abs(dy) > 0) B.bus.emit('camera-rotate', { dx: dx, dy: dy });
-      return;
-    }
-    var vx = Math.abs(dx) / dt;         // 横向速度 px/s
-    if (vx > CONST.SPIN_VELOCITY && now - mouse.lastSpinT > CONST.SPIN_THROTTLE) {
-      mouse.lastSpinT = now;
-      doSpin(vx * CONST.SPIN_RPS_K, 'mouse');
-    } else if (Math.abs(dx) + Math.abs(dy) > 1) {
-      B.bus.emit('camera-rotate', { dx: dx, dy: dy });
-    }
-  }
-  function onMouseUp() { mouse.down = false; }
+  function onMouseUp() { hold.mouse = false; stopHoldIfIdle(); }
+  function onMouseLeave() { hold.mouse = false; stopHoldIfIdle(); } // 按住拖出窗口：停止注入
+  function onWindowBlur() { hold.mouse = false; hold.touch = false; stopHoldIfIdle(); }
   function onContextMenu(e) { try { e.preventDefault(); } catch (err) { /* 静默 */ } }
 
   function initMouse() {
     window.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
-    document.addEventListener('contextmenu', onContextMenu); // 右键拖拽不弹菜单
+    window.addEventListener('mouseleave', onMouseLeave);
+    window.addEventListener('blur', onWindowBlur);
+    document.addEventListener('contextmenu', onContextMenu); // 游戏页不弹右键菜单
   }
 
   /* ================= 触摸 ================= */
-  var touch = {
-    count: 0, points: {},      // identifier → {x, y, t}
-    lastCX: -1, lastCY: 0,     // 双指中心（-1 表示无效）
-    prevPinch: 0,              // 双指距离
-    lastSpinT: 0
-  };
-
   function onTouchStart(e) {
     try { e.preventDefault(); } catch (err) { /* 静默 */ }
-    touch.count = e.touches.length;
-    touch.points = {};
-    for (var i = 0; i < e.touches.length; i++) {
-      var t = e.touches[i];
-      touch.points[t.identifier] = { x: t.clientX, y: t.clientY, t: performance.now() };
+    if (e.touches.length > 0 && !hold.touch) {
+      hold.touch = true;
+      startHold();
     }
-    if (e.touches.length < 2) { touch.lastCX = -1; }
   }
   function onTouchMove(e) {
+    // 无注入逻辑：按住期间手指轻微移动不误判为任何操作。
+    // 仅 preventDefault 阻止页面滚动/双指缩放手势。
     try { e.preventDefault(); } catch (err) { /* 静默 */ }
-    var now = performance.now();
-    var n = e.touches.length;
-    if (n === 1) {
-      var t = e.touches[0];
-      var p = touch.points[t.identifier];
-      if (p) {
-        var dt = Math.max((now - p.t) / 1000, 0.001);
-        var dx = t.clientX - p.x;
-        var dy = t.clientY - p.y;
-        var vx = Math.abs(dx) / dt;
-        if (vx > CONST.SPIN_VELOCITY && now - touch.lastSpinT > CONST.SPIN_THROTTLE) {
-          touch.lastSpinT = now;
-          doSpin(vx * CONST.SPIN_RPS_K, 'touch');
-        } else if (Math.abs(dx) + Math.abs(dy) > 1) {
-          B.bus.emit('camera-rotate', { dx: dx, dy: dy });
-        }
-        touch.points[t.identifier] = { x: t.clientX, y: t.clientY, t: now };
-      }
-    } else if (n >= 2) {
-      var t0 = e.touches[0], t1 = e.touches[1];
-      var cx = (t0.clientX + t1.clientX) / 2;
-      var cy = (t0.clientY + t1.clientY) / 2;
-      var dist = Math.sqrt(
-        Math.pow(t1.clientX - t0.clientX, 2) + Math.pow(t1.clientY - t0.clientY, 2));
-      if (touch.lastCX >= 0) {
-        var mdx = cx - touch.lastCX, mdy = cy - touch.lastCY;
-        if (Math.abs(mdx) + Math.abs(mdy) > 1) {
-          B.bus.emit('camera-rotate', { dx: mdx, dy: mdy });
-        }
-        var dDelta = dist - touch.prevPinch;
-        if (Math.abs(dDelta) > 2) B.bus.emit('camera-zoom', { delta: dDelta });
-      }
-      touch.lastCX = cx;
-      touch.lastCY = cy;
-      touch.prevPinch = dist;
-    }
-    touch.count = n;
   }
   function onTouchEnd(e) {
-    touch.count = e.touches.length;
-    if (e.touches.length < 2) touch.lastCX = -1;
+    hold.touch = e.touches.length > 0; // 还有手指按住则继续注入
+    stopHoldIfIdle();
   }
 
   function initTouch() {
@@ -374,14 +340,17 @@
 
   function dispose() {
     window.removeEventListener('mousedown', onMouseDown);
-    window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('mouseup', onMouseUp);
+    window.removeEventListener('mouseleave', onMouseLeave);
+    window.removeEventListener('blur', onWindowBlur);
     document.removeEventListener('contextmenu', onContextMenu);
     window.removeEventListener('touchstart', onTouchStart);
     window.removeEventListener('touchmove', onTouchMove);
     window.removeEventListener('touchend', onTouchEnd);
     window.removeEventListener('touchcancel', onTouchEnd);
     window.removeEventListener('devicemotion', onDeviceMotion);
+    if (hold.timer) { clearInterval(hold.timer); hold.timer = null; }
+    hold.mouse = hold.touch = false;
     gestureCleanup();
     try {
       if (gesture.script && gesture.script.parentNode) {
