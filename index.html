@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>竹蜻蜓 · 飞向月亮</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- Three.js 渲染容器 -->
+<div id="game-container"></div>
+
+<!-- 开始界面 -->
+<div id="start-screen" class="overlay">
+  <div class="start-box">
+    <h1 class="start-title">竹蜻蜓</h1>
+    <p class="start-sub">飞向月亮 · 给小海鸥</p>
+    <p class="start-desc">双手一搓，竹蜻蜓就带着我们的照片飞上天。<br>搓得越快，飞得越高，直到月亮上有一封信在等你。</p>
+    <div class="start-controls">
+      <p>🖱️ 电脑：按住鼠标快速来回搓动，或打开摄像头用手掌搓</p>
+      <p>📱 手机：手指快速来回划动，或摇一摇手机</p>
+    </div>
+    <button id="btn-start" class="btn-start">开始飞行</button>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div class="hud-left">
+    <div class="hud-altitude"><span id="hud-altitude-km">0</span><small>km</small></div>
+    <div class="hud-phase" id="hud-phase">地面</div>
+  </div>
+  <div class="hud-right">
+    <div class="hud-rpm"><span id="hud-rpm">0</span><small>转/分</small></div>
+    <div class="hud-score">本程 <span id="hud-score">0</span> · 最高 <span id="hud-best">0</span></div>
+  </div>
+</div>
+
+<!-- 层级切换横幅 -->
+<div id="phase-banner" class="hidden"></div>
+
+<!-- 照片回忆卡片 -->
+<div id="photo-card" class="hidden">
+  <div class="photo-frame"><img id="photo-img" alt="回忆"></div>
+  <p id="photo-caption" class="photo-caption"></p>
+</div>
+
+<!-- 成就提示 -->
+<div id="toast" class="hidden">
+  <div class="toast-icon">🏆</div>
+  <div class="toast-body">
+    <div class="toast-title" id="toast-title"></div>
+    <div class="toast-desc" id="toast-desc"></div>
+  </div>
+</div>
+
+<!-- 手势提示 -->
+<div id="gesture-hint" class="hidden">🙌 摄像头已开启：双手掌心相对，来回搓动</div>
+
+<!-- 信笺 -->
+<div id="letter-overlay" class="hidden">
+  <div class="letter-paper">
+    <div class="letter-stamp">月</div>
+    <div id="letter-content" class="letter-content"></div>
+  </div>
+</div>
+
+<!-- CDN 依赖：Three.js（UMD 版，file:// 兼容；版本由技术验证定，见 PROGRESS） -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+
+<!-- 本地模块（经典 script，全部挂 window.BambooGame，禁止 module） -->
+<script src="js/game.js"></script>
+<script src="js/photo-data.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/input.js"></script>
+<script src="js/bamboo.js"></script>
+<script src="js/world.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/achievements.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
