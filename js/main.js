@@ -19,6 +19,7 @@
 
   /* ---------- 初始化（页面加载即执行，主循环等待 game-start） ---------- */
   function init() {
+    var auth = G.getModule('auth');
     var physics = G.getModule('physics');
     var audio = G.getModule('audio');
     var scene = G.getModule('scene');
@@ -27,6 +28,7 @@
     var ui = G.getModule('ui');
     var achievements = G.getModule('achievements');
 
+    if (auth && auth.init) auth.init();
     if (physics) physics.init();
     if (audio) audio.init();
     if (scene) scene.init(doc.getElementById('game-container'));
