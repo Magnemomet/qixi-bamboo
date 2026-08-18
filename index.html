@@ -11,6 +11,18 @@
 <!-- Three.js 渲染容器 -->
 <div id="game-container"></div>
 
+<!-- 密码页（进入前） -->
+<div id="password-screen" class="overlay">
+  <div class="start-box">
+    <h1 class="start-title">竹蜻蜓</h1>
+    <p class="start-sub">飞向月亮 · 给小海鸥</p>
+    <p class="start-desc">这个网页有一把小锁。<br>输入只有我们知道的那个暗号，才能起飞。</p>
+    <input type="password" id="password-input" class="password-input" placeholder="暗号" autocomplete="off" maxlength="32">
+    <button id="btn-password" class="btn-start" type="button">解锁</button>
+    <p id="password-error" class="password-error hidden">暗号不对哦，再想想？</p>
+  </div>
+</div>
+
 <!-- 开始界面 -->
 <div id="start-screen" class="overlay">
   <div class="start-box">
@@ -107,6 +119,7 @@
 
 <!-- 本地模块（经典 script，全部挂 window.BambooGame，禁止 module） -->
 <script src="js/game.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/photo-data.js"></script>
 <script src="js/physics.js"></script>
 <script src="js/audio.js"></script>
