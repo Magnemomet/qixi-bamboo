@@ -16,12 +16,16 @@
   <div class="start-box">
     <h1 class="start-title">竹蜻蜓</h1>
     <p class="start-sub">飞向月亮 · 给小海鸥</p>
-    <p class="start-desc">双手一搓，竹蜻蜓就带着我们的照片飞上天。<br>搓得越快，飞得越高，直到月亮上有一封信在等你。</p>
+    <p class="start-desc">按住，竹蜻蜓就带着我们的照片飞上天。<br>飞得越高，看得越远，月亮上有一封信在等你。</p>
     <div class="start-controls">
-      <p>🖱️ 电脑：按住鼠标快速来回搓动，或打开摄像头用手掌搓</p>
-      <p>📱 手机：手指快速来回划动，或摇一摇手机</p>
+      <p>🖱️ 电脑：按住鼠标，竹蜻蜓转起来；松手，它滑翔</p>
+      <p>📱 手机：按住屏幕，或摇一摇，或对着摄像头双手搓动</p>
     </div>
     <button id="btn-start" class="btn-start">开始飞行</button>
+    <div class="start-extras">
+      <button class="btn-mini" data-gallery-open="achievements" type="button">📜 成就馆</button>
+      <button class="btn-mini" data-gallery-open="photos" type="button">📷 照片馆</button>
+    </div>
   </div>
 </div>
 
@@ -32,6 +36,10 @@
     <div class="hud-phase" id="hud-phase">地面</div>
   </div>
   <div class="hud-right">
+    <div class="hud-gallery">
+      <button class="hud-gallery-btn" data-gallery-open="achievements" type="button" title="成就馆">📜</button>
+      <button class="hud-gallery-btn" data-gallery-open="photos" type="button" title="照片馆">📷</button>
+    </div>
     <div class="hud-rpm"><span id="hud-rpm">0</span><small>转/分</small></div>
     <div class="hud-score">本程 <span id="hud-score">0</span> · 最高 <span id="hud-best">0</span></div>
   </div>
@@ -63,6 +71,34 @@
   <div class="letter-paper">
     <div class="letter-stamp">月</div>
     <div id="letter-content" class="letter-content"></div>
+  </div>
+</div>
+
+<!-- 成就馆 -->
+<div id="gallery-achievements" class="gallery-overlay hidden">
+  <button class="gallery-close" data-gallery-close type="button" aria-label="关闭">×</button>
+  <div class="gallery-inner">
+    <h2 class="gallery-title">成就展示馆</h2>
+    <p class="gallery-sub">飞过的痕迹，慢慢攒起来</p>
+    <div class="achievement-grid" id="achievement-grid"></div>
+  </div>
+</div>
+
+<!-- 照片馆 -->
+<div id="gallery-photos" class="gallery-overlay hidden">
+  <button class="gallery-close" data-gallery-close type="button" aria-label="关闭">×</button>
+  <div class="gallery-inner">
+    <h2 class="gallery-title">照片回忆馆</h2>
+    <p class="gallery-sub">飞过的天空，都有你的影子</p>
+    <div class="photo-letter-card" id="photo-letter-card">
+      <div class="photo-letter-icon">🌙</div>
+      <div class="photo-letter-body">
+        <div class="photo-letter-title">月亮上的信</div>
+        <div class="photo-letter-desc" id="photo-letter-desc">飞到月亮解锁</div>
+      </div>
+      <button class="photo-letter-btn" id="photo-letter-btn" type="button">重看</button>
+    </div>
+    <div class="photo-grid" id="photo-grid"></div>
   </div>
 </div>
 
