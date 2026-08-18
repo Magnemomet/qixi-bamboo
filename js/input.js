@@ -5,7 +5,7 @@
  *   - 鼠标：按住左键 = 持续注入（点击转动）；松开/移出窗口 = 停止，靠惯性滑翔
  *   - 触摸：单指按住 = 持续注入；抬起/取消 = 停止（不再需要划动）
  *   - 摇一摇：devicemotion 加速度变化率超阈值 = 注入（Android，iOS 尽力而为）
- *   - 摄像头手势：MediaPipe Hands 双掌心相对搓动 / 单掌心上下挥动（尽力而为）
+ *   - 摄像头手势：MediaPipe Hands 手部整体运动（搓手指/摆手/挥手/移动手掌都算，尽力而为）
  *     附画中画预览窗（右上角 HUD 下方，可点击最小化，信笺/收藏馆打开时自动隐藏）
  * 原则：能力检测 + try/catch 全包裹，任何失败静默降级，绝不抛错。
  *
@@ -61,16 +61,21 @@
     SHAKE_RPS_MAX: 10,
     SHAKE_THROTTLE: 80,    // ms
 
-    /* 摄像头手势（MediaPipe Hands） */
+    /* 摄像头手势（MediaPipe Hands）
+     * 判定标准 2026-08-18 大幅下调：主信号改为「手部整体运动速度」
+     * （21 个 landmark 平均位移 / 帧间隔，归一坐标/s），搓手指、摆手、
+     * 挥手、移动手掌全部有效；掌心朝向过滤已移除（不再要求掌心朝镜头，
+     * MediaPipe 识别到手即算）。三个信号（整体运动 / 双掌距离变化 /
+     * 单手 y 往复）任一超阈值即注入，互相独立，共享 GESTURE_THROTTLE 节流。 */
     HANDS_CDN: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/',
-    GESTURE_DIST_RATE: 0.35,        // 双掌心距离变化率阈值（归一坐标/s，取 200ms 平滑窗均值）
-    GESTURE_RPS_K: 12,              // rps 正比系数（原 90 → 1/7.5）：rps = min(|rate| * K, MAX)
+    GESTURE_MOTION_RATE: 0.12,      // 主信号：21 landmark 平均速度阈值（归一坐标/s）。调低=更敏感易误触发，调高=更迟钝
+    GESTURE_RPS_K: 20,              // 主信号 rps 系数（原 12）：rps = min(速度×K, MAX)。调高=同样动作注入更多转速
     GESTURE_RPS_MAX: 5,             // 单次手势注入上限（5rps ≈ +270rpm，落在单次 +100~300rpm 目标）
-    GESTURE_Y_RATE: 1.2,            // 单手 y 方向速度阈值（归一坐标/s，快速往复）
-    GESTURE_SINGLE_K: 6,            // 单手 rps 系数（原 45 → 1/7.5，与双手同比例）
-    GESTURE_THROTTLE: 120,          // ms，手势注入节流
-    GESTURE_SMOOTH_MS: 200,         // ms，距离/速度平滑窗口（取窗口首尾样本斜率，防单帧抖动误触发）
-    GESTURE_PALM_Z_MAX: 0.03,       // 掌心朝向过滤：指尖平均 z（腕部为原点）< 此值才算朝向摄像头
+    GESTURE_DIST_RATE: 0.12,        // 辅助 1：双掌距离变化率阈值（归一坐标/s，平滑窗首尾斜率，原 0.35）。调低=张合更容易触发
+    GESTURE_Y_RATE: 0.4,            // 辅助 2：单手掌心 y 速度阈值（归一坐标/s，原 1.2）。调低=上下挥手更容易触发
+    GESTURE_SINGLE_K: 10,           // 单手 y 辅助 rps 系数（原 6），与 RPS_K 独立可单独调
+    GESTURE_THROTTLE: 120,          // ms，手势注入节流（三信号共享，防注入风暴，维持原值）
+    GESTURE_SMOOTH_MS: 100,         // ms，平滑窗（原 200）：速度信号取窗内均值，距离/速度取首尾斜率。调低=响应快但易抖
     GESTURE_MODEL_COMPLEXITY: 1,    // 模型复杂度 0/1（1 更准；实测持续低帧率会自动降 0）
     GESTURE_FPS_MIN: 10,            // 实测 fps 低于此值且连续 2 个统计窗 → 降 modelComplexity 为 0
     GESTURE_FPS_WINDOW_MS: 2000,    // ms，fps 统计窗口
@@ -208,6 +213,9 @@
     lastSpinT: 0,           // 上次手势注入时刻（节流）
     distBuf: [],            // 双手掌心距离平滑窗 [{v,t},...]
     yBuf: [],               // 单手掌心 y 平滑窗 [{v,t},...]
+    motionBuf: [],          // 手部整体运动速度平滑窗 [{v,t},...]
+    motionPrev: null,       // 上一帧 landmark 快照（计算平均位移用）
+    motionT: 0,             // 上一帧时间戳（计算 dt 用）
     lastState: null, lastHands: null  // 上次发出的事件（去重）
   };
 
@@ -387,6 +395,9 @@
     gesture.video = null;
     gesture.distBuf.length = 0;
     gesture.yBuf.length = 0;
+    gesture.motionBuf.length = 0;
+    gesture.motionPrev = null;
+    gesture.motionT = 0;
     gesture.lastState = gesture.lastHands = null;
   }
 
@@ -396,12 +407,6 @@
     emitGesture('error', 0);
     try { B.bus.emit('input-status', { gesture: false }); } catch (e) { /* 静默 */ }
     previewShowError(); // 短暂红点提示，不打扰
-  }
-
-  /* 掌心朝向过滤：指尖平均深度 < 阈值 → 掌心朝摄像头（搓动时指尖自然指向镜头） */
-  function palmFacing(lm) {
-    var z = (lm[8].z + lm[12].z + lm[16].z + lm[20].z) / 4;
-    return z < CONST.GESTURE_PALM_Z_MAX;
   }
 
   /* 平滑窗：保留最近 GESTURE_SMOOTH_MS 内样本，斜率 = 窗口首尾差 / 时间跨 */
@@ -416,31 +421,72 @@
     var dt = Math.max((b.t - a.t) / 1000, 0.001);
     return (b.v - a.v) / dt;
   }
+  /* 速度均值窗：保留最近 GESTURE_SMOOTH_MS 内样本，取均值（速度信号用均值抗单帧抖动） */
+  function pushValue(buf, v, t, max) {
+    buf.push({ v: v, t: t });
+    while (buf.length > 1 && t - buf[0].t > CONST.GESTURE_SMOOTH_MS) buf.shift();
+    while (buf.length > max) buf.shift();
+  }
+  function smoothAvg(buf) {
+    if (buf.length < 2) return null;
+    var s = 0;
+    for (var i = 0; i < buf.length; i++) s += buf[i].v;
+    return s / buf.length;
+  }
+
+  /* 主信号：手部整体运动速度 = 21 个 landmark 两帧平均位移 / dt（归一坐标/s）
+   * 包含 z 轴（相对腕部深度）：搓手指时指尖 x/y 位移小但 z 往复明显，
+   * 不依赖掌心朝向，识别到手即算。 */
+  function handMotionSpeed(prev, cur) {
+    if (!prev || prev.length === 0 || prev.length !== cur.length) return 0;
+    var sum = 0, n = 0;
+    for (var h = 0; h < cur.length; h++) {
+      var p = prev[h], c = cur[h];
+      var k = Math.min(p.length, c.length, 21);
+      for (var j = 0; j < k; j++) {
+        var dx = c[j].x - p[j].x, dy = c[j].y - p[j].y, dz = c[j].z - p[j].z;
+        sum += Math.sqrt(dx * dx + dy * dy + dz * dz);
+        n++;
+      }
+    }
+    return n ? sum / n : 0;
+  }
 
   function onHandResults(results) {
     if (!results || !results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
       gesture.distBuf.length = 0;
       gesture.yBuf.length = 0;
+      gesture.motionBuf.length = 0;
+      gesture.motionPrev = null;
+      gesture.motionT = 0;
       emitGesture('ready', 0);
       return;
     }
     var now = performance.now();
-    var P = 9; // 掌根中心（掌心），比手腕(0)更稳
-    var palms = [];
-    for (var i = 0; i < results.multiHandLandmarks.length && palms.length < 2; i++) {
-      if (palmFacing(results.multiHandLandmarks[i])) palms.push(results.multiHandLandmarks[i]);
-    }
-    if (palms.length === 0) {
-      gesture.distBuf.length = 0;
-      gesture.yBuf.length = 0;
-      emitGesture('ready', 0);
-      return;
-    }
-    emitGesture('tracking', palms.length);
+    var hands = results.multiHandLandmarks.slice(0, 2); // 只取前 2 只手
+    emitGesture('tracking', hands.length);
 
-    if (palms.length >= 2) {
-      /* 双手：掌心距离变化率（200ms 平滑均值）超阈值 → 搓动（rps 正比变化率） */
-      var h0 = palms[0][P], h1 = palms[1][P];
+    var dt = gesture.motionT ? Math.max((now - gesture.motionT) / 1000, 0.001) : 0;
+    gesture.motionT = now;
+    /* 主信号：手部整体运动速度（21 landmark 平均位移 / dt），
+     * 搓手指/摆手/挥手/移动手掌全部命中。首帧无上一帧快照，跳过。 */
+    if (dt > 0) {
+      var motion = handMotionSpeed(gesture.motionPrev, hands);
+      pushValue(gesture.motionBuf, motion, now, 8);
+      var motionAvg = smoothAvg(gesture.motionBuf);
+      if (motionAvg !== null && motionAvg > CONST.GESTURE_MOTION_RATE &&
+          now - gesture.lastSpinT > CONST.GESTURE_THROTTLE) {
+        gesture.lastSpinT = now;
+        doSpin(Math.min(motionAvg * CONST.GESTURE_RPS_K, CONST.GESTURE_RPS_MAX), 'gesture');
+      }
+    }
+    /* 快照当前帧供下一帧差动 */
+    gesture.motionPrev = hands.map(function (lm) { return lm.slice(0, 21); });
+
+    var P = 9; // 掌根中心（掌心），比手腕(0)更稳
+    if (hands.length >= 2) {
+      /* 辅助 1：双手掌心距离变化率（平滑窗首尾斜率）超阈值 → 注入 */
+      var h0 = hands[0][P], h1 = hands[1][P];
       var d = Math.sqrt(Math.pow(h0.x - h1.x, 2) + Math.pow(h0.y - h1.y, 2));
       pushSample(gesture.distBuf, d, now, 8);
       var rate = smoothRate(gesture.distBuf);
@@ -451,8 +497,8 @@
       }
       gesture.yBuf.length = 0;
     } else {
-      /* 单手：掌心 y 方向快速往复（200ms 平滑均值，节流防灌爆） */
-      pushSample(gesture.yBuf, palms[0][P].y, now, 8);
+      /* 辅助 2：单手掌心 y 方向往复（平滑窗首尾斜率）超阈值 → 注入 */
+      pushSample(gesture.yBuf, hands[0][P].y, now, 8);
       var vy = smoothRate(gesture.yBuf);
       if (vy !== null && Math.abs(vy) > CONST.GESTURE_Y_RATE &&
           now - gesture.lastSpinT > CONST.GESTURE_THROTTLE) {
