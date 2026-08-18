@@ -31,6 +31,7 @@
   var wobbleT = 0;      // 陀螺感晃动时间
   var added = false;    // 是否已加入 scene
   var initialized = false;
+  var positionOut = new THREE.Vector3(); // getPos 复用，避免渲染循环每帧创建 Vector3
 
   // ========== 工具：程序化竹纹 CanvasTexture ==========
   // 256×64，竹黄底色 + 纤维细纹 + 3 条深色竹节横线 + 节边亮线
@@ -172,9 +173,9 @@
     group = new THREE.Group();
     rotors = new THREE.Group();
 
-    // 两片桨叶（旋转 180° 对称）
+    // 两片桨叶（旋转 180° 对称）；共享同一 geometry / texture / material。
     var blade1 = makeBlade();
-    var blade2 = makeBlade();
+    var blade2 = blade1.clone(true);
     blade2.rotation.y = Math.PI;
     rotors.add(blade1);
     rotors.add(blade2);
@@ -281,8 +282,8 @@
 
   // ========== 暴露给 scene 的位置查询 ==========
   function getPos() {
-    if (!group) return new THREE.Vector3(0, 0, 0);
-    return group.position.clone();
+    if (!group) return positionOut.set(0, 0, 0);
+    return positionOut.copy(group.position);
   }
 
   BG.register('bamboo', {
