@@ -48,7 +48,9 @@
   var starfieldMat;        // 星空 PointsMaterial（直接控制 opacity）
   var skyUniforms;         // 天空 shader uniforms
   var texCache = {};       // 贴图缓存：key -> THREE.Texture（先 fallback 后 image 替换）
+  var geometryCache = {};  // 可缩放基础几何缓存，避免同形状对象反复分配 geometry
   var initialized = false;
+  var ACTIVE_WEIGHT = 0.02;
 
   // 移动端检测（Android UA 或窄屏）
   var MOBILE = /Android/i.test(navigator.userAgent || '') || window.innerWidth <= 640;
@@ -211,9 +213,8 @@
     { top: 0x000005, bot: 0x050810, glow: 0.01 }  // 12 galaxy       深黑微紫
   ];
 
-  function updateSky(alt) {
+  function updateSky(w) {
     if (!skyUniforms) return;
-    var w = computeWeights(alt);
     var topR = 0, topG = 0, topB = 0;
     var botR = 0, botG = 0, botB = 0;
     var glow = 0;
@@ -238,31 +239,51 @@
     }
   }
 
+  // ========== 可缩放基础几何缓存 ==========
+  function sharedGeometry(key, createFn) {
+    if (!geometryCache[key]) geometryCache[key] = createFn();
+    return geometryCache[key];
+  }
+
+  function meshFromScaledGeometry(key, createFn, material, sx, sy, sz) {
+    var mesh = new THREE.Mesh(sharedGeometry(key, createFn), material);
+    mesh.scale.set(sx == null ? 1 : sx, sy == null ? 1 : sy, sz == null ? 1 : sz);
+    return mesh;
+  }
+
   // ========== fade 管理工具 ==========
+  // registerFade 仅在构建期 traverse 一次，把材质引用缓存到层上；每帧不再遍历场景树。
   function registerFade(obj) {
+    var materials = [];
+    var seen = [];
     obj.traverse(function (o) {
       if (!o.material) return;
       var mats = Array.isArray(o.material) ? o.material : [o.material];
       for (var i = 0; i < mats.length; i++) {
         var m = mats[i];
-        if (m.transparent) {
-          m.userData.fadeBase = m.opacity;
-          m.userData.fadeManaged = true;
+        if (m.transparent && !m.userData.fadeManual) {
+          if (!m.userData.fadeManaged) {
+            m.userData.fadeBase = m.opacity;
+            m.userData.fadeManaged = true;
+          }
+          if (seen.indexOf(m) < 0) {
+            seen.push(m);
+            materials.push(m);
+          }
         }
       }
     });
+    obj.userData.fadeMaterials = materials;
+    obj.userData.lastFadeWeight = -1;
   }
+
   function applyFade(group, w) {
-    group.traverse(function (o) {
-      if (!o.material) return;
-      var mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (var i = 0; i < mats.length; i++) {
-        var m = mats[i];
-        if (m.userData.fadeManaged && !m.userData.fadeManual) {
-          m.opacity = m.userData.fadeBase * w;
-        }
-      }
-    });
+    var materials = group.userData.fadeMaterials;
+    if (!materials || Math.abs(group.userData.lastFadeWeight - w) < 0.0005) return;
+    for (var i = 0; i < materials.length; i++) {
+      materials[i].opacity = materials[i].userData.fadeBase * w;
+    }
+    group.userData.lastFadeWeight = w;
   }
 
   // ========== 远景星空（独立 group，不参与 phase weight）==========
@@ -424,9 +445,11 @@
   function makeBush() {
     var g = new THREE.Group();
     var bushMat = new THREE.MeshStandardMaterial({ color: 0x4d7a3a, roughness: 0.9 });
+    var bushGeom = sharedGeometry('sphere-8-6-unit', function () { return new THREE.SphereGeometry(1, 8, 6); });
     for (var i = 0; i < 5; i++) {
       var r = 0.4 + Math.random() * 0.3;
-      var blob = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), bushMat);
+      var blob = new THREE.Mesh(bushGeom, bushMat);
+      blob.scale.setScalar(r);
       blob.position.set(
         (Math.random() - 0.5) * 0.8,
         r * 0.6,
@@ -462,8 +485,9 @@
     var forestMat = new THREE.MeshStandardMaterial({
       color: 0x2a5a32, roughness: 1.0
     });
+    var forestGeom = sharedGeometry('plane-200-20', function () { return new THREE.PlaneGeometry(200, 20); });
     for (var i = 0; i < 3; i++) {
-      var forest = new THREE.Mesh(new THREE.PlaneGeometry(200, 20), forestMat);
+      var forest = new THREE.Mesh(forestGeom, forestMat);
       forest.position.set((Math.random() - 0.5) * 25, -2, -95 - i * 5);
       g.add(forest);
     }
@@ -534,9 +558,11 @@
     var radii = [2.4, 2.0, 1.5, 0.9];
     var coneHs = [2.5, 2.2, 2.0, 1.6];
     for (var i = 0; i < 4; i++) {
-      var cone = new THREE.Mesh(
-        new THREE.ConeGeometry(radii[i], coneHs[i], 8),
-        new THREE.MeshStandardMaterial({ color: colors[i], roughness: 0.9 })
+      var cone = meshFromScaledGeometry(
+        'cone-unit-8',
+        function () { return new THREE.ConeGeometry(1, 1, 8); },
+        new THREE.MeshStandardMaterial({ color: colors[i], roughness: 0.9 }),
+        radii[i], coneHs[i], radii[i]
       );
       cone.position.y = yPos[i];
       g.add(cone);
@@ -583,7 +609,10 @@
         emissive: 0xffaa55, emissiveIntensity: 0.03 + Math.random() * 0.04
       });
 
-      var bld = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), mat);
+      var bld = meshFromScaledGeometry(
+        'box-unit', function () { return new THREE.BoxGeometry(1, 1, 1); },
+        mat, bw, bh, bd
+      );
       // 前后两排交错
       var row = i % 2;
       var col = Math.floor(i / 2);
@@ -596,12 +625,14 @@
 
       // 楼顶设备箱
       if (Math.random() > 0.4) {
-        var topBox = new THREE.Mesh(
-          new THREE.BoxGeometry(bw * 0.4, 1 + Math.random() * 1.5, bd * 0.4),
-          new THREE.MeshStandardMaterial({ color: 0x555a66, roughness: 0.8 })
+        var topHeight = 1 + Math.random() * 1.5;
+        var topBox = meshFromScaledGeometry(
+          'box-unit', function () { return new THREE.BoxGeometry(1, 1, 1); },
+          new THREE.MeshStandardMaterial({ color: 0x555a66, roughness: 0.8 }),
+          bw * 0.4, topHeight, bd * 0.4
         );
         topBox.position.copy(bld.position);
-        topBox.position.y = -5 + bh + (1 + Math.random() * 1.5) / 2;
+        topBox.position.y = -5 + bh + topHeight / 2;
         g.add(topBox);
       }
     }
@@ -679,12 +710,14 @@
       color: 0xffffff, roughness: 1.0,
       transparent: true, opacity: 0.75, depthWrite: false
     });
+    var thinCloudGeom = sharedGeometry('sphere-8-6-unit', function () { return new THREE.SphereGeometry(1, 8, 6); });
     for (var i = 0; i < 6; i++) {
       var cloud = new THREE.Group();
       var lobes = 3 + Math.floor(Math.random() * 2);
       for (var j = 0; j < lobes; j++) {
         var r = 0.7 + Math.random() * 0.5;
-        var sphere = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), thinCloudMat);
+        var sphere = new THREE.Mesh(thinCloudGeom, thinCloudMat);
+        sphere.scale.setScalar(r);
         sphere.position.set((j - lobes / 2) * 0.8, Math.random() * 0.25, Math.random() * 0.3);
         cloud.add(sphere);
       }
@@ -884,12 +917,14 @@
       transparent: true, opacity: 0.92, depthWrite: false
     });
     var sphereCount = MOBILE ? 3 : 5;
+    var cloudLobeGeom = sharedGeometry('sphere-8-6-unit', function () { return new THREE.SphereGeometry(1, 8, 6); });
     for (var i = 0; i < sphereCount; i++) {
       var cloud = new THREE.Group();
       var lobes = 5 + Math.floor(Math.random() * 3);
       for (var j = 0; j < lobes; j++) {
         var r = 0.7 + Math.random() * 0.7;
-        var sphere = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), matSphere);
+        var sphere = new THREE.Mesh(cloudLobeGeom, matSphere);
+        sphere.scale.setScalar(r);
         sphere.position.set(
           (j - lobes / 2) * 0.85,
           Math.random() * 0.3,
@@ -981,12 +1016,14 @@
       color: 0xffffff, roughness: 1.0,
       transparent: true, opacity: 0.55, depthWrite: false
     });
+    var stratoCloudGeom = sharedGeometry('sphere-8-6-unit', function () { return new THREE.SphereGeometry(1, 8, 6); });
     for (var i = 0; i < 4; i++) {
       var cloud = new THREE.Group();
       var lobes = 3 + Math.floor(Math.random() * 2);
       for (var j = 0; j < lobes; j++) {
         var r = 1.0 + Math.random() * 0.6;
-        var sphere = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), matCloud);
+        var sphere = new THREE.Mesh(stratoCloudGeom, matCloud);
+        sphere.scale.setScalar(r);
         sphere.position.set((j - lobes / 2) * 1.2, Math.random() * 0.3, Math.random() * 0.4);
         cloud.add(sphere);
       }
@@ -1824,8 +1861,8 @@
     var alt = BG.S.altitude || 0;
     var w = computeWeights(alt);
 
-    // 天空色板（13 层权重插值）
-    updateSky(alt);
+    // 天空色板复用同一份 13 层权重，避免每帧重复计算。
+    updateSky(w);
 
     // 远景星空（独立控制）
     updateStarfield(alt);
@@ -1835,13 +1872,15 @@
       var lg = layerGroups[i];
       var wi = w[i] || 0;
 
-      // visibility 硬切换（weight 太低时直接隐藏，省渲染开销）
-      lg.visible = wi > 0.02;
+      // 只有通常 2~3 个活跃层进入本帧更新；非活跃层既不 fade 也不跑动态逻辑。
+      var active = wi > ACTIVE_WEIGHT;
+      if (lg.visible !== active) lg.visible = active;
+      if (!active) continue;
 
-      // 自动 fade managed 透明材质
-      if (lg.visible) applyFade(lg, wi);
+      // 静态透明对象仅在层权重实际变化时写 opacity，列表已在 init 缓存。
+      applyFade(lg, wi);
 
-      // 自定义 update（动态行为 + fadeManual 自管）
+      // 动态对象仅在所在层活跃时更新位置、旋转或手动 fade。
       var ld = layerData[i];
       if (ld && ld.update) ld.update(dt, wi);
     }
